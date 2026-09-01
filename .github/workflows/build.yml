@@ -21,10 +21,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout this repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout armbian/build
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: armbian/build
           path: build
@@ -45,34 +45,50 @@ jobs:
       - name: Replace DTB in image
         run: |
           set -e
-          if [ -f rk3399-custom.dtb ]; then
-            DTB=rk3399-custom.dtb
-          elif [ -f .github/workflows/rk3399-custom.dtb ]; then
-            DTB=.github/workflows/rk3399-custom.dtb
+          if [ -f "$GITHUB_WORKSPACE/rk3399-custom.dtb" ]; then
+            DTB="$GITHUB_WORKSPACE/rk3399-custom.dtb"
+          elif [ -f "$GITHUB_WORKSPACE/.github/workflows/rk3399-custom.dtb" ]; then
+            DTB="$GITHUB_WORKSPACE/.github/workflows/rk3399-custom.dtb"
           else
             echo "!! 未找到 rk3399-custom.dtb（需上传到仓库）"
             exit 1
           fi
           echo "使用 DTB: $DTB"
-          IMG=$(ls build/output/images/*.img | head -1)
+
+          cd "$GITHUB_WORKSPACE/build/output/images"
+          IMG=$(ls *.img 2>/dev/null | head -1 || true)
+          if [ -z "$IMG" ]; then
+            XZ=$(ls *.img.xz 2>/dev/null | head -1 || true)
+            if [ -z "$XZ" ]; then
+              echo "!! 未找到编译产物:"
+              ls -la
+              exit 1
+            fi
+            echo "解压: $XZ"
+            xz -dk "$XZ"
+            IMG=${XZ%.xz}
+          fi
           echo "镜像: $IMG"
+
           LOOP=$(sudo losetup -f)
-          sudo losetup -P $LOOP "$IMG"
+          sudo losetup -P "$LOOP" "$IMG"
           sleep 2
           sudo mkdir -p /mnt/arm
-          sudo mount ${LOOP}p1 /mnt/arm
+          sudo mount "${LOOP}p1" /mnt/arm
           echo "镜像内 DTB:"
           find /mnt/arm/boot -name 'rk3399-rockpro64.dtb' -print
-          sudo find /mnt/arm/boot -name 'rk3399-rockpro64.dtb' \
-            -exec cp "$DTB" {} \;
+          sudo find /mnt/arm/boot -name 'rk3399-rockpro64.dtb' -exec cp "$DTB" {} \;
           sudo umount /mnt/arm
-          sudo losetup -d $LOOP
-          echo "DTB 替换完成"
+          sudo losetup -d "$LOOP"
+
+          xz -f "${IMG}"
+          rm -f "${IMG}"
+          echo "完成，产物:"
+          ls -lh *.img.xz
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: armbian-rk3399-custom
-          path: |
-            build/output/images/*.img*
+          path: build/output/images/*.img.xz
           retention-days: 7
