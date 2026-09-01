@@ -42,6 +42,27 @@ jobs:
             KERNEL_BTF=no \
             COMPRESS_OUTPUTIMAGE=img,xz
 
+      - name: Upload compiled image
+        uses: actions/upload-artifact@v4
+        with:
+          name: armbian-compiled
+          path: build/output/images/*.img.xz
+          retention-days: 7
+          if-no-files-found: error
+
+  patch:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v5
+
+      - name: Download compiled image
+        uses: actions/download-artifact@v4
+        with:
+          name: armbian-compiled
+          path: img
+
       - name: Replace DTB in image
         run: |
           set -e
@@ -55,19 +76,16 @@ jobs:
           fi
           echo "使用 DTB: $DTB"
 
-          cd "$GITHUB_WORKSPACE/build/output/images"
-          IMG=$(ls *.img 2>/dev/null | head -1 || true)
-          if [ -z "$IMG" ]; then
-            XZ=$(ls *.img.xz 2>/dev/null | head -1 || true)
-            if [ -z "$XZ" ]; then
-              echo "!! 未找到编译产物:"
-              ls -la
-              exit 1
-            fi
-            echo "解压: $XZ"
-            xz -dk "$XZ"
-            IMG=${XZ%.xz}
+          cd "$GITHUB_WORKSPACE/img"
+          XZ=$(ls *.img.xz 2>/dev/null | head -1 || true)
+          if [ -z "$XZ" ]; then
+            echo "!! 未找到 .img.xz:"
+            ls -la
+            exit 1
           fi
+          echo "解压: $XZ"
+          sudo xz -dk "$XZ"
+          IMG=${XZ%.xz}
           echo "镜像: $IMG"
 
           LOOP=$(sudo losetup -f)
@@ -81,14 +99,15 @@ jobs:
           sudo umount /mnt/arm
           sudo losetup -d "$LOOP"
 
-          xz -f "${IMG}"
-          rm -f "${IMG}"
+          sudo xz -f "${IMG}"
+          sudo rm -f "${IMG}"
           echo "完成，产物:"
           ls -lh *.img.xz
 
-      - name: Upload artifacts
+      - name: Upload final image
         uses: actions/upload-artifact@v4
         with:
           name: armbian-rk3399-custom
-          path: build/output/images/*.img.xz
+          path: img/*.img.xz
           retention-days: 7
+          if-no-files-found: error
